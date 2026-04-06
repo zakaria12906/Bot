@@ -64,18 +64,36 @@ function processIncomingEmail_(message, thread, pendingLabel) {
   // Détecter la langue
   var lang = detectLanguage(body);
 
-  // Générer réponse proposée
-  var replyData = generateReply(sender, subject, body, lang);
+  // Appliquer le moteur de règles métier (Shopify-aware)
+  var ruleResult = applyBusinessRules(sender, subject, body, lang);
+
+  // Fallback sur le moteur de réponse simple si pas de règle enrichie
+  var replyText;
+  var category;
+
+  if (ruleResult.enrichedReply) {
+    replyText = ruleResult.enrichedReply;
+    category = ruleResult.ruleApplied;
+  } else {
+    var replyData = generateReply(sender, subject, body, lang);
+    replyText = replyData.text;
+    category = replyData.category;
+  }
+
+  // Analyser la sécurité de l'email
+  var securityInfo = analyzeEmailSecurity(message);
 
   // Stocker la réponse en attente
   storePendingReply(emailId, {
     sender: sender,
     subject: subject,
     body: body,
-    reply: replyData.text,
+    reply: replyText,
     lang: lang,
-    category: replyData.category,
+    category: category,
+    action: ruleResult.action,
     threadId: thread.getId(),
+    shopifyData: ruleResult.shopifyData,
     timestamp: new Date().toISOString()
   });
 
@@ -84,18 +102,34 @@ function processIncomingEmail_(message, thread, pendingLabel) {
     + '<b>De:</b> ' + escapeHtml(sender) + '\n'
     + '<b>Objet:</b> ' + escapeHtml(subject) + '\n'
     + '<b>Langue:</b> ' + lang + '\n'
-    + '<b>Catégorie:</b> ' + replyData.category + '\n\n'
-    + '<b>--- Message (extrait) ---</b>\n'
+    + '<b>Catégorie:</b> ' + category + '\n'
+    + '<b>Action:</b> ' + ruleResult.action + '\n';
+
+  // Ajouter info Shopify si disponible
+  if (ruleResult.shopifyData) {
+    telegramText += '<b>Commande:</b> ' + ruleResult.shopifyData.name
+      + ' (' + ruleResult.shopifyData.status + ')\n';
+  }
+
+  // Alertes sécurité
+  if (securityInfo.warnings.length > 0) {
+    telegramText += '<b>\u26A0\uFE0F Sécurité:</b> ' + securityInfo.warnings.join(', ') + '\n';
+  }
+
+  telegramText += '\n<b>--- Message (extrait) ---</b>\n'
     + escapeHtml(body.substring(0, 300)) + (body.length > 300 ? '...' : '') + '\n\n'
     + '<b>--- Réponse proposée ---</b>\n'
-    + escapeHtml(replyData.text);
+    + escapeHtml(replyText);
 
   sendApprovalRequest(telegramText, emailId);
 
   // Marquer comme en cours
   thread.addLabel(pendingLabel);
 
-  logEvent('PROCESSED', 'Email from ' + sender + ' — category: ' + replyData.category);
+  // Logger dans le Sheet aussi
+  logToSheet('SUPPORT', sender, ruleResult.action, 'pending', category);
+
+  logEvent('PROCESSED', 'Email from ' + sender + ' — category: ' + category + ' — rule: ' + ruleResult.ruleApplied);
 }
 
 /**

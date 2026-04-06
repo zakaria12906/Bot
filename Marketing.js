@@ -210,6 +210,9 @@ function executeCampaign(campaignId) {
   );
 
   logEvent('CAMPAIGN_DONE', 'Campaign ' + campaignId + ': ' + sent + ' sent, ' + errors + ' errors');
+
+  // Logger dans le Google Sheet
+  logCampaignToSheet(campaign);
 }
 
 /**
@@ -228,22 +231,23 @@ function cancelCampaign(campaignId) {
 function sendMarketingEmail_(contact, campaign) {
   var unsubscribeUrl = getWebAppUrl() + '?action=unsubscribe&token=' + contact.unsubscribe_token;
 
-  var htmlBody = '<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">'
-    + '<h2>' + escapeHtml(campaign.title) + '</h2>'
-    + '<p>Bonjour ' + escapeHtml(contact.prenom || '') + ',</p>'
-    + '<div style="padding: 20px 0;">'
-    + campaign.message.replace(/\n/g, '<br>')
-    + '</div>'
-    + '<hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">'
-    + '<p style="font-size: 11px; color: #999;">'
-    + 'Vous recevez cet email car vous avez donné votre consentement. '
-    + '<a href="' + unsubscribeUrl + '">Se désinscrire</a>'
-    + '</p>'
-    + '</div>';
+  // Utiliser le système de templates HTML professionnels
+  var htmlBody = buildMarketingEmail({
+    template: campaign.templateType || 'standard',
+    title: campaign.title,
+    preheader: campaign.preheader || campaign.title,
+    heroImage: campaign.heroImage || '',
+    body: '<p>' + campaign.message.replace(/\n/g, '<br>') + '</p>',
+    ctaText: campaign.ctaText || '',
+    ctaUrl: campaign.ctaUrl || '',
+    recipientName: contact.prenom || '',
+    unsubscribeUrl: unsubscribeUrl,
+    companyName: CONFIG.SUPPORT_EMAIL ? CONFIG.SUPPORT_EMAIL.split('@')[0] : 'Digital Products'
+  });
 
   GmailApp.sendEmail(contact.email, campaign.title, campaign.message, {
     htmlBody: htmlBody,
-    name: 'Digital Products',
+    name: CONFIG.SUPPORT_EMAIL ? CONFIG.SUPPORT_EMAIL.split('@')[0] : 'Digital Products',
     noReply: false
   });
 }

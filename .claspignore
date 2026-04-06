@@ -1,0 +1,6 @@
+.git/**
+.gitignore
+.clasp.json
+.claspignore
+README.md
+node_modules/**

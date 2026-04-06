@@ -125,28 +125,53 @@ function handleTelegramCommand(message) {
   if (text.indexOf('/start') === 0) {
     sendTelegramMessage(
       '<b>\uD83E\uDD16 Bot Support Digital</b>\n\n'
-      + 'Commandes disponibles :\n'
+      + '<b>Support</b>\n'
       + '/status - État du bot\n'
       + '/stats - Statistiques du jour\n'
+      + '/dashboard - Tableau de bord interactif\n'
+      + '/report - Rapport quotidien\n\n'
+      + '<b>Marketing</b>\n'
       + '/campaign - Lancer une campagne\n'
-      + '/contacts - Stats base marketing\n'
+      + '/contacts - Stats base marketing\n\n'
+      + '<b>Système</b>\n'
+      + '/backup - Sauvegarder la base\n'
+      + '/integrity - Vérifier l\'intégrité\n'
+      + '/logs - Logs récents\n'
       + '/help - Aide'
     );
   } else if (text.indexOf('/status') === 0) {
     handleStatusCommand_();
   } else if (text.indexOf('/stats') === 0) {
     handleStatsCommand_();
+  } else if (text.indexOf('/dashboard') === 0) {
+    sendDashboard();
+  } else if (text.indexOf('/report') === 0) {
+    sendDailyReport();
   } else if (text.indexOf('/campaign') === 0) {
     handleCampaignCommand_(text);
   } else if (text.indexOf('/contacts') === 0) {
     handleContactsCommand_();
+  } else if (text.indexOf('/backup') === 0) {
+    backupMarketingData();
+  } else if (text.indexOf('/integrity') === 0) {
+    handleIntegrityCommand_();
+  } else if (text.indexOf('/logs') === 0) {
+    sendRecentLogsToTelegram_();
   } else if (text.indexOf('/help') === 0) {
     sendTelegramMessage(
       '<b>\u2753 Aide</b>\n\n'
+      + '<b>Support:</b>\n'
       + '/status - Vérifier que le bot fonctionne\n'
       + '/stats - Emails traités aujourd\'hui\n'
+      + '/dashboard - Dashboard interactif avec boutons\n'
+      + '/report - Envoyer le rapport quotidien\n\n'
+      + '<b>Marketing:</b>\n'
       + '/campaign Titre | Message | Segment - Créer campagne\n'
       + '/contacts - Infos base marketing\n\n'
+      + '<b>Système:</b>\n'
+      + '/backup - Sauvegarder la base contacts\n'
+      + '/integrity - Vérifier et corriger les données\n'
+      + '/logs - Voir les 10 derniers logs\n\n'
       + 'Le bot scanne Gmail toutes les minutes et envoie les propositions de réponse ici.'
     );
   } else {
@@ -201,6 +226,23 @@ function handleContactsCommand_() {
     + 'Désinscrits: ' + info.unsubscribed + '\n'
     + 'Segments: ' + info.segments
   );
+}
+
+function handleIntegrityCommand_() {
+  var report = checkDataIntegrity();
+  var text = '<b>\uD83D\uDD0D Vérification intégrité</b>\n\n'
+    + 'Statut: ' + (report.status === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Problèmes détectés') + '\n'
+    + 'Total lignes: ' + report.totalRows + '\n'
+    + 'Doublons: ' + report.duplicates.length + '\n'
+    + 'Emails invalides: ' + report.invalidEmails.length + '\n'
+    + 'Tokens manquants: ' + report.missingTokens.length + '\n';
+
+  if (report.issues > 0) {
+    text += '\nTotal problèmes: ' + report.issues + '\n'
+      + 'Utilisez /integrity_fix pour corriger automatiquement.';
+  }
+
+  sendTelegramMessage(text);
 }
 
 // --- Utilitaires ---

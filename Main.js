@@ -141,6 +141,11 @@ function handleCallbackQuery_(callbackQuery) {
     cancelCampaign(campaignId);
     updateTelegramMessage(messageId, '\u274C Campagne annulée');
   }
+
+  // --- Dashboard actions ---
+  else if (data.indexOf('dash_') === 0) {
+    handleDashboardCallback(data, messageId);
+  }
 }
 
 // ============================
@@ -164,6 +169,27 @@ function setupTriggers() {
     .everyMinutes(1)
     .create();
 
+  // Rapport quotidien à 9h
+  ScriptApp.newTrigger('sendDailyReport')
+    .timeBased()
+    .atHour(9)
+    .everyDays(1)
+    .create();
+
+  // Rapport hebdomadaire le lundi à 9h
+  ScriptApp.newTrigger('sendWeeklyReport')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(9)
+    .create();
+
+  // Backup hebdomadaire le dimanche à 2h
+  ScriptApp.newTrigger('backupMarketingData')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
+    .atHour(2)
+    .create();
+
   // Nettoyage quotidien des logs à 3h du matin
   ScriptApp.newTrigger('cleanupOldLogs')
     .timeBased()
@@ -171,8 +197,24 @@ function setupTriggers() {
     .everyDays(1)
     .create();
 
-  logEvent('SETUP', 'Triggers configured');
-  sendTelegramMessage('\u2705 <b>Bot configuré</b>\n\nTriggers installés avec succès.');
+  // Vérification intégrité mensuelle (1er du mois à 4h)
+  ScriptApp.newTrigger('autoFixIntegrity')
+    .timeBased()
+    .onMonthDay(1)
+    .atHour(4)
+    .create();
+
+  logEvent('SETUP', 'All triggers configured (6 total)');
+  sendTelegramMessage(
+    '\u2705 <b>Bot configuré</b>\n\n'
+    + 'Triggers installés:\n'
+    + '- Scan inbox: toutes les 1 min\n'
+    + '- Rapport quotidien: 9h\n'
+    + '- Rapport hebdo: lundi 9h\n'
+    + '- Backup: dimanche 2h\n'
+    + '- Nettoyage logs: 3h\n'
+    + '- Intégrité: 1er du mois 4h'
+  );
 }
 
 /**
