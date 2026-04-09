@@ -129,6 +129,99 @@ function getShopifyOrderSummary(orderNumber) {
   return summary;
 }
 
+// ============================
+// SYNC CLIENTS → BASE MARKETING
+// ============================
+
+/**
+ * Synchronise les emails des acheteurs Shopify récents dans la base marketing.
+ * @param {number} [daysBack] - Nombre de jours en arrière (défaut: 30)
+ * @returns {Object} {imported, skipped, total}
+ */
+function syncShopifyCustomers(daysBack) {
+  if (!CONFIG.SHOPIFY_STORE || !CONFIG.SHOPIFY_TOKEN) {
+    sendTelegramMessage('\u26A0\uFE0F Shopify non configuré. Ajoutez SHOPIFY_STORE et SHOPIFY_TOKEN.');
+    return { imported: 0, skipped: 0, total: 0 };
+  }
+
+  daysBack = daysBack || 30;
+  var sinceDate = new Date();
+  sinceDate.setDate(sinceDate.getDate() - daysBack);
+  var sinceIso = sinceDate.toISOString();
+
+  var imported = 0;
+  var skipped = 0;
+  var total = 0;
+  var seenEmails = {};
+
+  sendTelegramMessage('\uD83D\uDD04 Synchronisation Shopify en cours (' + daysBack + ' derniers jours)...');
+
+  try {
+    var url = 'https://' + CONFIG.SHOPIFY_STORE + '/admin/api/'
+      + CONFIG.SHOPIFY_API_VERSION + '/orders.json?status=any&limit=250'
+      + '&created_at_min=' + encodeURIComponent(sinceIso);
+
+    var response = shopifyRequest_(url);
+    if (!response || !response.orders) {
+      sendTelegramMessage('\u26A0\uFE0F Aucune commande trouvée sur Shopify.');
+      return { imported: 0, skipped: 0, total: 0 };
+    }
+
+    response.orders.forEach(function (order) {
+      if (!order.customer || !order.customer.email) return;
+
+      var email = order.customer.email.toLowerCase().trim();
+      if (seenEmails[email]) return;
+      seenEmails[email] = true;
+      total++;
+
+      if (!isValidEmail(email)) {
+        skipped++;
+        return;
+      }
+
+      try {
+        addMarketingContact({
+          email: email,
+          prenom: order.customer.first_name || '',
+          consent: true,
+          last_purchase: order.created_at,
+          segment: classifyCustomerSegment_(order)
+        });
+        imported++;
+      } catch (e) {
+        skipped++;
+      }
+    });
+
+    sendTelegramMessage(
+      '\u2705 <b>Sync Shopify termin\u00e9e</b>\n\n'
+      + '\uD83D\uDCE6 Commandes analys\u00e9es: ' + response.orders.length + '\n'
+      + '\uD83D\uDC64 Clients uniques: ' + total + '\n'
+      + '\u2705 Import\u00e9s/mis \u00e0 jour: ' + imported + '\n'
+      + '\u23ED Ignor\u00e9s (doublons/invalides): ' + skipped
+    );
+
+    logEvent('SHOPIFY_SYNC', 'Imported: ' + imported + ', Skipped: ' + skipped + ', Total: ' + total);
+    return { imported: imported, skipped: skipped, total: total };
+  } catch (e) {
+    logEvent('SHOPIFY_SYNC_ERROR', e.message);
+    sendTelegramMessage('\u274C Erreur sync Shopify: ' + e.message);
+    return { imported: imported, skipped: skipped, total: total };
+  }
+}
+
+/**
+ * Détermine le segment d'un client basé sur sa commande.
+ */
+function classifyCustomerSegment_(order) {
+  var total = parseFloat(order.total_price) || 0;
+  var ordersCount = (order.customer && order.customer.orders_count) || 1;
+  if (total >= 200 || ordersCount >= 5) return 'vip';
+  if (ordersCount >= 2) return 'active';
+  return 'new';
+}
+
 // --- Internals ---
 
 function parseOrder_(order) {
@@ -172,18 +265,5 @@ function shopifyRequest_(url) {
     muteHttpExceptions: true
   };
 
-  var response = UrlFetchApp.fetch(url, options);
-  var code = response.getResponseCode();
-
-  if (code === 429) {
-    logEvent('SHOPIFY_RATE_LIMIT', 'Rate limited, waiting...');
-    Utilities.sleep(2000);
-    response = UrlFetchApp.fetch(url, options);
-  }
-
-  if (response.getResponseCode() !== 200) {
-    throw new Error('Shopify API returned ' + response.getResponseCode());
-  }
-
-  return JSON.parse(response.getContentText());
+  return resilientFetch(url, options);
 }

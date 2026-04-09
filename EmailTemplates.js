@@ -205,6 +205,12 @@ function buildCTA_(options, colors) {
 }
 
 function buildFooter_(options, colors) {
+  var trackingPixel = '';
+  if (options.campaignId && options.recipientEmail) {
+    var pixelUrl = getTrackingPixelUrl(options.campaignId, options.recipientEmail);
+    trackingPixel = '<img src="' + pixelUrl + '" width="1" height="1" alt="" style="display:none;" />';
+  }
+
   return '<tr><td style="background-color:#f8f8f8;padding:20px 30px;text-align:center;'
     + 'font-family:Arial,sans-serif;font-size:12px;color:#999999;border-top:1px solid #eeeeee;">'
     + '<p style="margin:0 0 10px 0;">' + escapeHtml(options.companyName || 'Digital Products') + '</p>'
@@ -212,6 +218,7 @@ function buildFooter_(options, colors) {
     + '<p style="margin:0;">'
     + '<a href="' + (options.unsubscribeUrl || '#') + '" style="color:#999999;text-decoration:underline;">Se désinscrire</a>'
     + '</p>'
+    + trackingPixel
     + '</td></tr>';
 }
 

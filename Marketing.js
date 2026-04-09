@@ -165,15 +165,22 @@ function executeCampaign(campaignId) {
 
   sendTelegramMessage('\uD83D\uDE80 Envoi en cours... ' + contacts.length + ' emails');
 
+  var provider = getActiveProvider();
+  var dailyLimit = provider.dailyLimit;
+
   for (var i = 0; i < contacts.length; i++) {
+    if (!checkRateLimit('campaign_send', batchSize)) {
+      logEvent('CAMPAIGN_THROTTLED', 'Rate limit hit, pausing...');
+      Utilities.sleep(60000);
+    }
+
     try {
-      sendMarketingEmail_(contacts[i], campaign);
+      sendCampaignEmail(contacts[i], campaign);
       sent++;
     } catch (e) {
       errors++;
       logEvent('CAMPAIGN_ERROR', 'Failed to send to ' + contacts[i].email + ': ' + e.message);
 
-      // Stop si trop d'erreurs
       if (errors > 10) {
         logEvent('CAMPAIGN_ABORT', 'Too many errors, stopping campaign');
         sendTelegramMessage('\u26A0\uFE0F Campagne arrêtée: trop d\'erreurs (' + errors + ')');
@@ -181,14 +188,14 @@ function executeCampaign(campaignId) {
       }
     }
 
-    // Rate limiting : pause toutes les batchSize emails
+    // Rate limiting: pause every batchSize emails
     if ((i + 1) % batchSize === 0 && i + 1 < contacts.length) {
-      Utilities.sleep(60000); // attendre 1 minute
+      var pauseMs = provider.name === 'sendgrid' ? 10000 : 60000;
+      Utilities.sleep(pauseMs);
     }
 
-    // Vérifier quota quotidien
-    if (sent >= CONFIG.MAX_EMAILS_PER_DAY) {
-      sendTelegramMessage('\u26A0\uFE0F Limite quotidienne atteinte (' + CONFIG.MAX_EMAILS_PER_DAY + ' emails)');
+    if (sent >= dailyLimit) {
+      sendTelegramMessage('\u26A0\uFE0F Limite quotidienne ' + provider.name + ' atteinte (' + dailyLimit + ' emails)');
       break;
     }
   }
@@ -222,34 +229,6 @@ function executeCampaign(campaignId) {
 function cancelCampaign(campaignId) {
   PropertiesService.getScriptProperties().deleteProperty('campaign_' + campaignId);
   logEvent('CAMPAIGN_CANCELLED', campaignId);
-}
-
-// ============================
-// ENVOI EMAIL MARKETING
-// ============================
-
-function sendMarketingEmail_(contact, campaign) {
-  var unsubscribeUrl = getWebAppUrl() + '?action=unsubscribe&token=' + contact.unsubscribe_token;
-
-  // Utiliser le système de templates HTML professionnels
-  var htmlBody = buildMarketingEmail({
-    template: campaign.templateType || 'standard',
-    title: campaign.title,
-    preheader: campaign.preheader || campaign.title,
-    heroImage: campaign.heroImage || '',
-    body: '<p>' + campaign.message.replace(/\n/g, '<br>') + '</p>',
-    ctaText: campaign.ctaText || '',
-    ctaUrl: campaign.ctaUrl || '',
-    recipientName: contact.prenom || '',
-    unsubscribeUrl: unsubscribeUrl,
-    companyName: CONFIG.SUPPORT_EMAIL ? CONFIG.SUPPORT_EMAIL.split('@')[0] : 'Digital Products'
-  });
-
-  GmailApp.sendEmail(contact.email, campaign.title, campaign.message, {
-    htmlBody: htmlBody,
-    name: CONFIG.SUPPORT_EMAIL ? CONFIG.SUPPORT_EMAIL.split('@')[0] : 'Digital Products',
-    noReply: false
-  });
 }
 
 // ============================
@@ -310,6 +289,14 @@ function buildUnsubscribePage_(status) {
 // ============================
 // UTILITAIRES INTERNES
 // ============================
+
+function rowToObject_(headers, row) {
+  var obj = {};
+  for (var i = 0; i < headers.length; i++) {
+    obj[headers[i]] = row[i];
+  }
+  return obj;
+}
 
 function getMarketingSheet_() {
   if (!CONFIG.MARKETING_SHEET_ID) return null;

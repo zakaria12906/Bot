@@ -30,7 +30,8 @@ function sendDailyReport() {
     // Santé système
     + '<b>🔧 Système</b>\n'
     + '  Statut: ' + getSystemHealth_() + '\n'
-    + '  Quota Gmail restant: ~' + estimateRemainingQuota_() + '\n';
+    + '  Provider: ' + getActiveProvider().name + ' (' + getActiveProvider().mode + ')\n'
+    + '  Quota restant: ~' + estimateRemainingQuota_() + '\n';
 
   // Alertes
   var alerts = checkAlerts_();
@@ -68,6 +69,21 @@ function sendWeeklyReport() {
     + '  Campagnes envoyées: ' + weekStats.campaignsSent + '\n\n'
     + '<b>📊 Top catégories support</b>\n'
     + getTopCategories_();
+
+  // SendGrid stats if configured
+  if (CONFIG.SENDGRID_API_KEY) {
+    var sgHealth = checkSendGridHealth();
+    if (sgHealth.stats) {
+      report += '\n<b>📧 SendGrid</b>\n'
+        + '  Envoyés: ' + sgHealth.stats.delivered + '\n'
+        + '  Ouvertures: ' + sgHealth.stats.opens + ' (' + sgHealth.stats.openRate + '%)\n'
+        + '  Clics: ' + sgHealth.stats.clicks + ' (' + sgHealth.stats.clickRate + '%)\n'
+        + '  Bounces: ' + sgHealth.stats.bounces + '\n';
+      if (sgHealth.warnings.length > 0) {
+        report += '  ⚠️ ' + sgHealth.warnings.join(', ') + '\n';
+      }
+    }
+  }
 
   sendTelegramMessage(report);
   logEvent('REPORT', 'Weekly report sent');
@@ -117,9 +133,11 @@ function sendDashboard() {
   var stats = getTodayStats();
   var marketingStats = getMarketingStats();
 
+  var provider = getActiveProvider();
   var text = '\uD83C\uDFE0 <b>Dashboard</b>\n\n'
     + '📨 Support: ' + stats.processed + ' emails | ✅ ' + stats.approved + ' | ❌ ' + stats.errors + '\n'
     + '📢 Marketing: ' + marketingStats.consented + '/' + marketingStats.total + ' contacts actifs\n'
+    + '📧 Provider: ' + provider.name + ' (' + provider.mode + ')\n'
     + '🔧 Système: ' + getSystemHealth_();
 
   var buttons = [
@@ -128,7 +146,10 @@ function sendDashboard() {
       { text: '\uD83D\uDCCB Contacts', callback_data: 'dash_contacts' }
     ],
     [
-      { text: '\uD83D\uDCC4 Logs récents', callback_data: 'dash_logs' },
+      { text: '\uD83D\uDCE7 Provider', callback_data: 'dash_provider' },
+      { text: '\uD83D\uDCC4 Logs récents', callback_data: 'dash_logs' }
+    ],
+    [
       { text: '\uD83D\uDD04 Rafraîchir', callback_data: 'dash_refresh' }
     ]
   ];
@@ -153,6 +174,8 @@ function handleDashboardCallback(action, messageId) {
     sendRealtimeStats();
   } else if (action === 'dash_contacts') {
     handleContactsCommand_();
+  } else if (action === 'dash_provider') {
+    handleProviderCommand_();
   } else if (action === 'dash_logs') {
     sendRecentLogsToTelegram_();
   } else if (action === 'dash_refresh') {

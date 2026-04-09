@@ -9,6 +9,11 @@
  */
 function scanInbox() {
   try {
+    if (!checkRateLimit('scan_inbox', 5)) {
+      logEvent('SCAN_THROTTLED', 'Inbox scan rate-limited');
+      return;
+    }
+
     ensureLabelsExist_();
 
     var query = 'is:inbox -label:' + CONFIG.LABELS.PENDING
@@ -212,6 +217,107 @@ function ignoreEmail(emailId) {
 
   removePendingReply(emailId);
   logEvent('IGNORED', 'Email from ' + pending.sender + ' ignored');
+}
+
+// ============================
+// PRODUITS PDF (Google Drive)
+// ============================
+
+/**
+ * Liste tous les fichiers PDF dans le dossier produits configuré.
+ * @returns {Object[]} [{id, name, size}]
+ */
+function listProductPDFs() {
+  if (!CONFIG.PRODUCTS_FOLDER_ID) return [];
+
+  try {
+    var folder = DriveApp.getFolderById(CONFIG.PRODUCTS_FOLDER_ID);
+    var files = folder.getFilesByType(MimeType.PDF);
+    var pdfs = [];
+
+    while (files.hasNext()) {
+      var file = files.next();
+      pdfs.push({
+        id: file.getId(),
+        name: file.getName(),
+        size: Math.round(file.getSize() / 1024)
+      });
+    }
+
+    return pdfs;
+  } catch (e) {
+    logEvent('PDF_ERROR', 'Cannot list PDFs: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * Envoie la réponse approuvée avec un fichier PDF en pièce jointe.
+ * @param {string} emailId - ID du message Gmail
+ * @param {string} fileId - ID du fichier Google Drive
+ * @returns {boolean} Succès
+ */
+function sendApprovedReplyWithPDF(emailId, fileId) {
+  try {
+    var pending = getPendingReply(emailId);
+    if (!pending) {
+      logEvent('SEND_ERROR', 'No pending reply for: ' + emailId);
+      return false;
+    }
+
+    var message = GmailApp.getMessageById(emailId);
+    if (!message) {
+      logEvent('SEND_ERROR', 'Message not found: ' + emailId);
+      return false;
+    }
+
+    var file = DriveApp.getFileById(fileId);
+    var blob = file.getBlob();
+
+    message.reply(pending.reply, {
+      attachments: [blob]
+    });
+
+    var thread = GmailApp.getThreadById(pending.threadId);
+    removeLabel_(thread, CONFIG.LABELS.PENDING);
+    applyLabel_(thread, CONFIG.LABELS.DONE);
+
+    removePendingReply(emailId);
+    logEvent('SENT_WITH_PDF', 'Reply with PDF "' + file.getName() + '" sent to ' + pending.sender);
+    return true;
+  } catch (e) {
+    logEvent('SEND_ERROR', 'Failed to send reply with PDF: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Stocke la liste des PDFs pour une sélection ultérieure via Telegram.
+ * @param {string} emailId
+ * @param {Object[]} pdfList
+ */
+function storePDFSelection(emailId, pdfList) {
+  var store = PropertiesService.getScriptProperties();
+  store.setProperty('pdf_select_' + emailId, JSON.stringify(pdfList));
+}
+
+/**
+ * Récupère la liste des PDFs stockée pour un email.
+ * @param {string} emailId
+ * @returns {Object[]|null}
+ */
+function getPDFSelection(emailId) {
+  var store = PropertiesService.getScriptProperties();
+  var raw = store.getProperty('pdf_select_' + emailId);
+  return raw ? JSON.parse(raw) : null;
+}
+
+/**
+ * Supprime la sélection PDF temporaire.
+ * @param {string} emailId
+ */
+function removePDFSelection(emailId) {
+  PropertiesService.getScriptProperties().deleteProperty('pdf_select_' + emailId);
 }
 
 // --- Labels ---
